@@ -39,8 +39,9 @@ export async function findSpreadsheet(accessToken: string): Promise<string | nul
 /**
  * Create a new spreadsheet with a default _Config sheet and headers
  */
-export async function createSpreadsheet(accessToken: string): Promise<string> {
+export async function createSpreadsheet(accessToken: string, customName?: string): Promise<string> {
   try {
+    const title = customName || SPREADSHEET_NAME;
     // 1. Create Spreadsheet
     const res = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
       method: 'POST',
@@ -50,7 +51,7 @@ export async function createSpreadsheet(accessToken: string): Promise<string> {
       },
       body: JSON.stringify({
         properties: {
-          title: SPREADSHEET_NAME,
+          title: title,
         },
         sheets: [
           {
@@ -400,5 +401,31 @@ async function updateSheetRange(
     const errorText = await res.text();
     console.error(`Update sheet range ${range} failed:`, errorText);
     throw new Error(`Update sheet range failed: ${res.statusText}`);
+  }
+}
+
+/**
+ * List the user's Google Spreadsheets from Google Drive
+ */
+export async function listUserSpreadsheets(accessToken: string): Promise<Array<{ id: string; name: string; modifiedTime?: string }>> {
+  try {
+    const q = encodeURIComponent("mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false");
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime)&orderBy=modifiedTime desc&pageSize=50`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error('Error listing spreadsheets in Drive:', errorText);
+      throw new Error(`Drive API error: ${res.statusText}`);
+    }
+
+    const data = await res.json();
+    return data.files || [];
+  } catch (error) {
+    console.error('listUserSpreadsheets error:', error);
+    throw error;
   }
 }

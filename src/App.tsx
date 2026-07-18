@@ -25,6 +25,7 @@ import AddTransactionModal from './components/AddTransactionModal';
 import Dashboard from './components/Dashboard';
 import TransactionList from './components/TransactionList';
 import ManageCategories from './components/ManageCategories';
+import SpreadsheetSelector from './components/SpreadsheetSelector';
 import PPLogo from './components/PPLogo';
 import {
   HardHat,
@@ -43,7 +44,8 @@ import {
   Hammer,
   TrendingUp,
   Coins,
-  Settings2
+  Settings2,
+  Link2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -192,22 +194,7 @@ export default function App() {
       setLoading(true);
       setError(null);
       try {
-        let currentId = localStorage.getItem('construction_spreadsheet_id');
-
-        // If not in local storage, search Google Drive for an existing one
-        if (!currentId) {
-          const foundId = await findSpreadsheet(token);
-          if (foundId) {
-            currentId = foundId;
-          } else {
-            // Auto create if not found
-            const newId = await createSpreadsheet(token);
-            currentId = newId;
-          }
-          if (currentId) {
-            localStorage.setItem('construction_spreadsheet_id', currentId);
-          }
-        }
+        const currentId = localStorage.getItem('construction_spreadsheet_id');
 
         if (currentId) {
           setSpreadsheetId(currentId);
@@ -219,7 +206,11 @@ export default function App() {
             setSelectedProjectName(loadedProjects[0].name);
           }
         } else {
-          throw new Error('ไม่สามารถตรวจสอบหรือสร้างสเปรดชีตรายรับรายจ่ายได้');
+          // No spreadsheet currently configured, let user choose manually in UI
+          setSpreadsheetId(null);
+          setProjects([]);
+          setTransactions([]);
+          setSelectedProjectName(null);
         }
       } catch (err: any) {
         console.error('Init sheets error:', err);
@@ -235,6 +226,42 @@ export default function App() {
 
     initializeSheetsData();
   }, [token]);
+
+  // 4.1. Link or select a spreadsheet manually
+  const handleSelectSpreadsheet = async (id: string) => {
+    if (!token) return;
+    setLoading(true);
+    setError(null);
+    try {
+      localStorage.setItem('construction_spreadsheet_id', id);
+      setSpreadsheetId(id);
+      
+      const loadedProjects = await fetchProjects(id, token);
+      setProjects(loadedProjects);
+
+      if (loadedProjects.length > 0) {
+        setSelectedProjectName(loadedProjects[0].name);
+      } else {
+        setSelectedProjectName(null);
+      }
+    } catch (err: any) {
+      console.error('Error selecting spreadsheet:', err);
+      setError('ไม่สามารถซิงค์โครงการในไฟล์นี้ได้ กรุณาตรวจสอบให้แน่ใจว่าเป็นไฟล์สเปรดชีตที่ถูกต้อง');
+      localStorage.removeItem('construction_spreadsheet_id');
+      setSpreadsheetId(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 4.2. Disconnect/unlink the current spreadsheet
+  const handleDisconnectSpreadsheet = () => {
+    localStorage.removeItem('construction_spreadsheet_id');
+    setSpreadsheetId(null);
+    setProjects([]);
+    setTransactions([]);
+    setSelectedProjectName(null);
+  };
 
   // 5. Fetch transactions whenever Selected Project changes
   useEffect(() => {
@@ -352,153 +379,87 @@ export default function App() {
   // Currently active project details
   const currentProject = projects.find(p => p.name === selectedProjectName);
 
-  // Render Login page if needed
-  if (needsAuth) {
+  // Render welcome screen when user is not logged in
+  const renderNotLoggedIn = () => {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center px-4 relative overflow-hidden">
-        {/* Decorative Grid Background */}
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#e2e8f0_1px,transparent_1px),linear-gradient(to_bottom,#e2e8f0_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] opacity-60 pointer-events-none" />
-
-        <div className="w-full max-w-lg bg-white rounded-3xl border border-slate-150 p-8 space-y-8 shadow-sm relative z-10">
-          <div className="text-center space-y-4">
-            <PPLogo variant="vertical" size="lg" />
-            <div className="pt-1.5 text-center">
-              <span className="inline-flex px-3 py-1 bg-blue-50 border border-blue-100 text-[#1d318e] rounded-full text-[10px] font-bold uppercase tracking-wide">
-                SYSTEM PORTAL • ระบบบัญชีไซงานและงบประมาณวัสดุ
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 leading-relaxed max-w-[340px] mx-auto">
-              ระบบควบคุมงบประมาณวัสดุและรายรับรายจ่ายประจำโครงการกึ่งอัตโนมัติ เชื่อมโยง Google Sheets เรียลไทม์
-            </p>
-          </div>
-
-          <div className="space-y-4">
-            <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl space-y-2.5">
-              <h3 className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">
-                <Sparkles size={13} className="text-amber-500" />
-                จุดเด่นระบบบริหารไซงาน
-              </h3>
-              <ul className="text-xs text-slate-500 space-y-1.5 list-disc pl-4 leading-relaxed">
-                <li>เชื่อมข้อมูลลง <strong>Google Sheets ของคุณ</strong> โดยตรง</li>
-                <li>แยกแผ่นงาน (Sheet tabs) เพื่อติดตามค่าใช้จ่ายรายโครงการ</li>
-                <li>ควบคุมงบประมาณวัสดุแบบแยกประเภท (Concrete, Steel, Labor)</li>
-                <li>วิเคราะห์ด้วยแดชบอร์ดสรุปผลรายรับ-รายจ่ายเรียลไทม์</li>
-              </ul>
-            </div>
-
-            {error && (
-              <div className="p-3.5 bg-rose-50 border border-rose-100 text-rose-700 text-xs rounded-xl">
-                {error}
-              </div>
-            )}
-
-            <button
-              onClick={handleLogin}
-              disabled={isLoggingIn}
-              className="w-full h-12 border border-slate-200 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 font-semibold text-sm rounded-xl transition-all flex items-center justify-center gap-3 shadow-xs cursor-pointer disabled:opacity-60"
-            >
-              {isLoggingIn ? (
-                <>
-                  <span className="w-5 h-5 border-2 border-slate-300 border-t-amber-500 rounded-full animate-spin"></span>
-                  <span>กำลังเชื่อมต่อบัญชี Google...</span>
-                </>
-              ) : (
-                <>
-                  <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-5 h-5">
-                    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
-                    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
-                    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
-                    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
-                  </svg>
-                  <span>ลงชื่อเข้าใช้งานด้วย Google</span>
-                </>
-              )}
-            </button>
-          </div>
-          
-          <div className="text-center text-[10px] text-slate-400">
-            ระบบทำงานภายใต้โปรโตคอลความปลอดภัยของ Google OAuth และ Firebase Auth
-          </div>
+      <div className="w-full max-w-2xl mx-auto py-12 px-4 text-center space-y-6">
+        <div className="inline-flex p-4 bg-amber-50 text-amber-600 rounded-3xl border border-amber-100">
+          <FileSpreadsheet size={36} />
         </div>
+        <div className="space-y-2">
+          <h1 className="text-xl font-black text-slate-800 font-display">
+            ระบบจัดเก็บและควบคุมบัญชีงบประมาณไซงานก่อสร้าง
+          </h1>
+          <p className="text-xs text-slate-500 leading-relaxed max-w-md mx-auto">
+            บันทึกรายรับ-รายจ่าย คุมค่าวัสดุก่อสร้าง และติดตามงบประมาณแบบเรียลไทม์ โดยข้อมูลจะซิงค์กับแผ่นงาน Google Sheets ส่วนตัวของคุณโดยตรงปลอดภัย 100%
+          </p>
+        </div>
+
+        <div className="p-5 bg-white border border-slate-100 rounded-2xl max-w-md mx-auto space-y-3 text-left shadow-xs">
+          <h3 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+            <Sparkles size={14} className="text-amber-500" />
+            เริ่มต้นใช้งานง่ายๆ:
+          </h3>
+          <ul className="text-xs text-slate-500 space-y-2 list-none pl-1 leading-relaxed font-sans">
+            <li className="flex gap-2">
+              <span className="w-4 h-4 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center font-bold text-[9px] shrink-0 mt-0.5">1</span>
+              <span><strong>ลงชื่อเข้าใช้งานด้วย Google</strong> เพื่ออนุญาตให้ระบบเข้าถึงสเปรดชีตจัดเก็บข้อมูล</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="w-4 h-4 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center font-bold text-[9px] shrink-0 mt-0.5">2</span>
+              <span><strong>เลือกหรือสร้างสเปรดชีตใหม่</strong> โดยระบบจะจัดรูปแบบแผ่นงานหลักและสูตรให้ทั้งหมดโดยอัตโนมัติ</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="w-4 h-4 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center font-bold text-[9px] shrink-0 mt-0.5">3</span>
+              <span><strong>เริ่มใช้งาน</strong> เพิ่มชื่อไซงานก่อสร้าง บันทึกงบประมาณ และรายจ่ายตามหมวดหมู่ได้ทันที</span>
+            </li>
+          </ul>
+        </div>
+
+        <button
+          onClick={handleLogin}
+          disabled={isLoggingIn}
+          className="px-6 py-3 bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-slate-950 font-bold text-xs rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 mx-auto cursor-pointer disabled:opacity-60"
+        >
+          {isLoggingIn ? (
+            <>
+              <span className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin"></span>
+              <span>กำลังเชื่อมต่อบัญชี Google...</span>
+            </>
+          ) : (
+            <>
+              <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-4 h-4">
+                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+              </svg>
+              <span>กดเพื่อเชื่อมต่อบัญชี Google</span>
+            </>
+          )}
+        </button>
       </div>
     );
-  }
+  };
 
-  return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-700">
-      {/* 1. Header Bar */}
-      <header className="sticky top-0 z-40 bg-slate-900 text-white border-b border-slate-800 shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <PPLogo variant="horizontal" size="md" textColor="white" />
-            
-            {spreadsheetId && (
-              <div className="hidden lg:flex flex-col justify-center border-l border-slate-800 pl-4 h-9">
-                <span className="text-[8px] uppercase font-bold text-slate-500 tracking-wider">Spreadsheet Realtime</span>
-                <a
-                  href={`https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`}
-                  target="_blank"
-                  referrerPolicy="no-referrer"
-                  rel="noopener noreferrer"
-                  className="text-[10px] text-emerald-400 hover:text-emerald-300 font-semibold inline-flex items-center gap-1 transition-colors mt-0.5"
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
-                  เปิด Google Sheets <ExternalLink size={10} />
-                </a>
-              </div>
-            )}
+  const renderMainContent = () => {
+    if (!token) {
+      return renderNotLoggedIn();
+    }
 
-            {/* Mobile Sheet Indicator */}
-            {spreadsheetId && (
-              <div className="lg:hidden flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <a
-                  href={`https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`}
-                  target="_blank"
-                  referrerPolicy="no-referrer"
-                  rel="noopener noreferrer"
-                  className="text-[9px] text-slate-400 hover:text-emerald-400 inline-flex items-center gap-0.5"
-                  title="เปิด Google Sheets"
-                >
-                  Sheets <ExternalLink size={8} />
-                </a>
-              </div>
-            )}
-          </div>
+    if (!spreadsheetId) {
+      return (
+        <SpreadsheetSelector
+          token={token}
+          onSelectSpreadsheet={handleSelectSpreadsheet}
+          loading={loading}
+          setLoading={setLoading}
+        />
+      );
+    }
 
-          {/* User Section */}
-          {user && (
-            <div className="flex items-center gap-3">
-              <div className="hidden sm:block text-right">
-                <span className="text-xs font-semibold block text-slate-200 truncate max-w-[150px]">
-                  {user.displayName || 'ผู้ควบคุมงาน'}
-                </span>
-                <span className="text-[10px] text-slate-400 block truncate max-w-[150px] font-mono">
-                  {user.email}
-                </span>
-              </div>
-              {user.photoURL && (
-                <img
-                  src={user.photoURL}
-                  alt={user.displayName || 'Profile'}
-                  referrerPolicy="no-referrer"
-                  className="w-8 h-8 rounded-full border border-slate-700 shrink-0"
-                />
-              )}
-              <button
-                onClick={handleLogout}
-                className="p-2 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors cursor-pointer"
-                title="ออกจากระบบ"
-              >
-                <LogOut size={16} />
-              </button>
-            </div>
-          )}
-        </div>
-      </header>
-
-      {/* 2. Main Content Area */}
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 w-full flex flex-col md:flex-row gap-6 pb-24 md:pb-6">
+    return (
+      <div className="flex flex-col md:flex-row gap-6 w-full items-start">
         {/* Left Project Panel */}
         <aside className={`w-full md:w-64 shrink-0 flex flex-col gap-4 ${activeTab === 'projects' ? 'block' : 'hidden md:flex'}`}>
           {/* Projects Switcher */}
@@ -511,7 +472,7 @@ export default function App() {
               <button
                 onClick={handleRefresh}
                 disabled={loading}
-                className="p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors disabled:opacity-50"
+                className="p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors disabled:opacity-50 cursor-pointer"
                 title="รีเฟรชสเปรดชีต"
               >
                 <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
@@ -594,11 +555,11 @@ export default function App() {
         </aside>
 
         {/* Right Dashboard / Ledger Panel */}
-        <section className={`flex-1 flex flex-col gap-6 ${activeTab === 'projects' ? 'hidden md:flex' : 'flex'}`}>
+        <section className={`flex-1 flex flex-col gap-6 w-full ${activeTab === 'projects' ? 'hidden md:flex' : 'flex'}`}>
           {error && (
             <div className="p-4 bg-red-50 border border-red-150 text-red-800 rounded-2xl text-xs font-medium flex justify-between items-center shadow-xs">
               <span>{error}</span>
-              <button onClick={() => setError(null)} className="text-red-500 hover:text-red-700 font-bold">ปิด</button>
+              <button onClick={() => setError(null)} className="text-red-500 hover:text-red-700 font-bold font-sans cursor-pointer">ปิด</button>
             </div>
           )}
 
@@ -611,8 +572,8 @@ export default function App() {
               <div className="space-y-2 max-w-md">
                 <h2 className="text-xl font-bold font-display text-slate-800">ยินดีต้อนรับเข้าสู่แผงควบคุมหลัก</h2>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  ขณะนี้ระบบตรวจสอบพบว่าบัญชี Google ของคุณยังไม่มีแผ่นงานโครงการก่อสร้างใดๆ บันทึกใน Google Sheets
-                  กรุณาคลิกสร้างโครงการด้านล่างเพื่อเริ่มสร้าง แผ่นงาน (Sheet Tab) และสเปรดชีตควบคุมงบหลักแบบอัตโนมัติ
+                  ขณะนี้ระบบตรวจสอบพบว่าสเปรดชีต Google Sheets ของคุณยังไม่มีแผ่นงานโครงการใดๆ
+                  กรุณาคลิกสร้างโครงการด้านล่างเพื่อเริ่มสร้าง แผ่นงาน (Sheet Tab) และสูตรควบคุมแบบอัตโนมัติ
                 </p>
               </div>
               <button
@@ -624,7 +585,7 @@ export default function App() {
               </button>
             </div>
           ) : currentProject ? (
-            <div className="space-y-6">
+            <div className="space-y-6 w-full">
               {/* Project Title Area */}
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-100 shadow-xs">
                 <div>
@@ -655,110 +616,89 @@ export default function App() {
                 <div className="flex gap-4">
                   <button
                     onClick={() => setActiveTab('dashboard')}
-                    className={`pb-3 text-xs font-bold transition-all flex items-center gap-1.5 relative cursor-pointer ${
-                      activeTab === 'dashboard'
-                        ? 'text-amber-500'
-                        : 'text-slate-500 hover:text-slate-800'
+                    className={`pb-3 text-xs font-bold transition-all relative cursor-pointer ${
+                      activeTab === 'dashboard' ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600'
                     }`}
                   >
-                    <LayoutDashboard size={14} />
-                    <span>แดชบอร์ดสรุปผลแบบเรียลไทม์</span>
+                    <span>สรุปแดชบอร์ด</span>
                     {activeTab === 'dashboard' && (
-                      <motion.div
-                        layoutId="activeTabUnderline"
-                        className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500 rounded-full"
-                      />
+                      <motion.div layoutId="activeTabUnderline" className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500" />
                     )}
                   </button>
                   <button
                     onClick={() => setActiveTab('transactions')}
-                    className={`pb-3 text-xs font-bold transition-all flex items-center gap-1.5 relative cursor-pointer ${
-                      activeTab === 'transactions'
-                        ? 'text-amber-500'
-                        : 'text-slate-500 hover:text-slate-800'
+                    className={`pb-3 text-xs font-bold transition-all relative cursor-pointer ${
+                      activeTab === 'transactions' ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600'
                     }`}
                   >
-                    <Receipt size={14} />
                     <span>สมุดบัญชีรายรับรายจ่าย ({transactions.length})</span>
                     {activeTab === 'transactions' && (
-                      <motion.div
-                        layoutId="activeTabUnderline"
-                        className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500 rounded-full"
-                      />
+                      <motion.div layoutId="activeTabUnderline" className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500" />
                     )}
                   </button>
                   <button
                     onClick={() => setActiveTab('categories')}
-                    className={`pb-3 text-xs font-bold transition-all flex items-center gap-1.5 relative cursor-pointer ${
-                      activeTab === 'categories'
-                        ? 'text-amber-500'
-                        : 'text-slate-500 hover:text-slate-800'
+                    className={`pb-3 text-xs font-bold transition-all relative cursor-pointer ${
+                      activeTab === 'categories' ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600'
                     }`}
                   >
-                    <Settings2 size={14} />
                     <span>จัดการหมวดหมู่บัญชี</span>
                     {activeTab === 'categories' && (
-                      <motion.div
-                        layoutId="activeTabUnderline"
-                        className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500 rounded-full"
-                      />
+                      <motion.div layoutId="activeTabUnderline" className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500" />
                     )}
                   </button>
                 </div>
-                
-                {/* Sync Status Badge */}
-                <div className="text-[10px] text-slate-400 pb-3 font-medium flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  <span>สเปรดชีตซิงค์เรียลไทม์</span>
-                </div>
               </div>
 
-              {/* Rendering views */}
-              {loadingTransactions ? (
-                <div className="py-20 text-center flex flex-col justify-center items-center gap-3">
-                  <span className="w-8 h-8 border-3 border-slate-200 border-t-amber-500 rounded-full animate-spin"></span>
-                  <p className="text-xs text-slate-500 font-medium animate-pulse">กำลังอ่านข้อมูลจาก Google Sheets...</p>
-                </div>
-              ) : (
-                <AnimatePresence mode="wait">
-                  <motion.div
-                    key={activeTab}
-                    initial={{ opacity: 0, y: 5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -5 }}
-                    transition={{ duration: 0.15 }}
-                  >
-                    {activeTab === 'dashboard' ? (
-                      <Dashboard
-                        project={currentProject}
-                        transactions={transactions}
-                        materialCategories={materialCategories}
-                        incomeCategories={incomeCategories}
-                      />
-                    ) : activeTab === 'transactions' ? (
-                      <TransactionList
-                        transactions={transactions}
-                        onDeleteTransaction={handleDeleteTransaction}
-                        loading={loadingTransactions}
-                        materialCategories={materialCategories}
-                        incomeCategories={incomeCategories}
-                      />
-                    ) : activeTab === 'categories' ? (
-                      <ManageCategories
-                        materialCategories={materialCategories}
-                        incomeCategories={incomeCategories}
-                        onUpdateMaterialCategories={handleUpdateMaterialCategories}
-                        onUpdateIncomeCategories={handleUpdateIncomeCategories}
-                        onResetToDefaults={handleResetCategoriesToDefaults}
-                      />
-                    ) : (
-                      <div className="py-10 text-center text-xs text-slate-400">
-                        เลือกเมนูจากแถบนำทางด้านล่าง
-                      </div>
-                    )}
-                  </motion.div>
-                </AnimatePresence>
-              )}
+              {/* Active Tab Panel */}
+              <div className="w-full">
+                {loading && transactions.length === 0 ? (
+                  <div className="py-24 flex flex-col items-center justify-center gap-3 bg-white border border-slate-100 rounded-3xl shadow-xs">
+                    <span className="w-8 h-8 border-2 border-slate-200 border-t-amber-500 rounded-full animate-spin"></span>
+                    <span className="text-xs text-slate-400">กำลังดาวน์โหลดข้อมูลธุรกรรมจากแผ่นงาน...</span>
+                  </div>
+                ) : (
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={activeTab}
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -5 }}
+                      transition={{ duration: 0.15 }}
+                      className="w-full"
+                    >
+                      {activeTab === 'dashboard' ? (
+                        <Dashboard
+                          project={currentProject}
+                          transactions={transactions}
+                          materialCategories={materialCategories}
+                          incomeCategories={incomeCategories}
+                        />
+                      ) : activeTab === 'transactions' ? (
+                        <TransactionList
+                          transactions={transactions}
+                          onDeleteTransaction={handleDeleteTransaction}
+                          loading={loadingTransactions}
+                          materialCategories={materialCategories}
+                          incomeCategories={incomeCategories}
+                        />
+                      ) : activeTab === 'categories' ? (
+                        <ManageCategories
+                          materialCategories={materialCategories}
+                          incomeCategories={incomeCategories}
+                          onUpdateMaterialCategories={handleUpdateMaterialCategories}
+                          onUpdateIncomeCategories={handleUpdateIncomeCategories}
+                          onResetToDefaults={handleResetCategoriesToDefaults}
+                        />
+                      ) : (
+                        <div className="py-10 text-center text-xs text-slate-400">
+                          เลือกเมนูจากแถบนำทางด้านล่าง
+                        </div>
+                      )}
+                    </motion.div>
+                  </AnimatePresence>
+                )}
+              </div>
             </div>
           ) : (
             <div className="py-20 text-center text-sm text-slate-500">
@@ -766,6 +706,126 @@ export default function App() {
             </div>
           )}
         </section>
+      </div>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-700">
+      {/* 1. Header Bar */}
+      <header className="sticky top-0 z-40 bg-slate-900 text-white border-b border-slate-800 shadow-xs">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <PPLogo variant="horizontal" size="md" textColor="white" />
+            
+            {spreadsheetId && (
+              <div className="hidden lg:flex flex-row items-center gap-3 border-l border-slate-800 pl-4 h-9">
+                <div className="flex flex-col justify-center">
+                  <span className="text-[8px] uppercase font-bold text-slate-500 tracking-wider">Spreadsheet Realtime</span>
+                  <a
+                    href={`https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`}
+                    target="_blank"
+                    referrerPolicy="no-referrer"
+                    rel="noopener noreferrer"
+                    className="text-[10px] text-emerald-400 hover:text-emerald-300 font-semibold inline-flex items-center gap-1 transition-colors mt-0.5"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
+                    เปิด Google Sheets <ExternalLink size={10} />
+                  </a>
+                </div>
+                <button
+                  onClick={handleDisconnectSpreadsheet}
+                  className="px-2 py-1 text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 rounded-md text-[9px] font-bold uppercase cursor-pointer flex items-center gap-1 transition-colors"
+                  title="สลับหรือเลือกไฟล์สเปรดชีตใหม่"
+                >
+                  <Link2 size={9} />
+                  <span>เปลี่ยนชีต</span>
+                </button>
+              </div>
+            )}
+
+            {/* Mobile Sheet Indicator */}
+            {spreadsheetId && (
+              <div className="lg:hidden flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <a
+                  href={`https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`}
+                  target="_blank"
+                  referrerPolicy="no-referrer"
+                  rel="noopener noreferrer"
+                  className="text-[9px] text-slate-400 hover:text-emerald-400 inline-flex items-center gap-0.5"
+                  title="เปิด Google Sheets"
+                >
+                  Sheets <ExternalLink size={8} />
+                </a>
+                <button
+                  onClick={handleDisconnectSpreadsheet}
+                  className="p-1 text-slate-400 hover:text-rose-400 border border-slate-800 rounded-md text-[8px]"
+                  title="เปลี่ยนชีต"
+                >
+                  <Link2 size={8} />
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* User Section */}
+          {user ? (
+            <div className="flex items-center gap-3">
+              <div className="hidden sm:block text-right">
+                <span className="text-xs font-semibold block text-slate-200 truncate max-w-[150px]">
+                  {user.displayName || 'ผู้ควบคุมงาน'}
+                </span>
+                <span className="text-[10px] text-slate-400 block truncate max-w-[150px] font-mono">
+                  {user.email}
+                </span>
+              </div>
+              {user.photoURL && (
+                <img
+                  src={user.photoURL}
+                  alt={user.displayName || 'Profile'}
+                  referrerPolicy="no-referrer"
+                  className="w-8 h-8 rounded-full border border-slate-700 shrink-0"
+                />
+              )}
+              <button
+                onClick={handleLogout}
+                className="p-2 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors cursor-pointer"
+                title="ออกจากระบบ"
+              >
+                <LogOut size={16} />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handleLogin}
+              disabled={isLoggingIn}
+              className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-slate-950 font-bold text-xs rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-60 shrink-0"
+            >
+              {isLoggingIn ? (
+                <>
+                  <span className="w-3 h-3 border-2 border-slate-950 border-t-transparent rounded-full animate-spin inline-block"></span>
+                  <span>เชื่อมต่อ...</span>
+                </>
+              ) : (
+                <>
+                  <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-3.5 h-3.5">
+                    <path fill="#000000" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                    <path fill="#000000" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                    <path fill="#000000" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                    <path fill="#000000" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                  </svg>
+                  <span>เชื่อมต่อ Google</span>
+                </>
+              )}
+            </button>
+          )}
+        </div>
+      </header>
+
+      {/* 2. Main Content Area */}
+      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 w-full flex flex-col md:flex-row gap-6 pb-24 md:pb-6">
+        {renderMainContent()}
       </main>
 
       {/* Mobile Bottom Navigation Bar */}
