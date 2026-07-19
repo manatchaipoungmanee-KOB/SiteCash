@@ -186,9 +186,30 @@ export default function App() {
     }
   };
 
-  // 4. Onboard or discover the Google Spreadsheet once token is ready
+  // 4. Onboard or discover the Google Spreadsheet once token is ready or load local projects
   useEffect(() => {
-    if (!token) return;
+    if (!token) {
+      const localProjectsRaw = localStorage.getItem('local_projects');
+      if (localProjectsRaw) {
+        try {
+          const parsed = JSON.parse(localProjectsRaw);
+          setProjects(parsed);
+          if (parsed.length > 0) {
+            setSelectedProjectName(parsed[0].name);
+          } else {
+            setSelectedProjectName(null);
+          }
+        } catch (e) {
+          console.error('Error parsing local projects:', e);
+          setProjects([]);
+          setSelectedProjectName(null);
+        }
+      } else {
+        setProjects([]);
+        setSelectedProjectName(null);
+      }
+      return;
+    }
 
     const initializeSheetsData = async () => {
       setLoading(true);
@@ -265,7 +286,26 @@ export default function App() {
 
   // 5. Fetch transactions whenever Selected Project changes
   useEffect(() => {
-    if (!spreadsheetId || !selectedProjectName || !token) {
+    if (!token) {
+      if (!selectedProjectName) {
+        setTransactions([]);
+        return;
+      }
+      const localTrxRaw = localStorage.getItem(`local_transactions_${selectedProjectName}`);
+      if (localTrxRaw) {
+        try {
+          setTransactions(JSON.parse(localTrxRaw));
+        } catch (e) {
+          console.error('Error parsing local transactions:', e);
+          setTransactions([]);
+        }
+      } else {
+        setTransactions([]);
+      }
+      return;
+    }
+
+    if (!spreadsheetId || !selectedProjectName) {
       setTransactions([]);
       return;
     }
@@ -287,7 +327,8 @@ export default function App() {
 
   // 6. Manual Sync Refresh
   const handleRefresh = async () => {
-    if (!spreadsheetId || !token) return;
+    if (!token) return; // Local mode updates immediately
+    if (!spreadsheetId) return;
     setLoading(true);
     setError(null);
     try {
@@ -320,8 +361,22 @@ export default function App() {
 
   // 7. Save new project from modal
   const handleSaveProject = async (newProject: Project) => {
-    if (!spreadsheetId || !token) return;
     setError(null);
+    if (!token) {
+      // Local mode
+      const isDuplicate = projects.some(p => p.name.trim().toLowerCase() === newProject.name.trim().toLowerCase());
+      if (isDuplicate) {
+        throw new Error('มีโครงการชื่อนี้อยู่แล้วในระบบ');
+      }
+      const updated = [...projects, newProject];
+      setProjects(updated);
+      localStorage.setItem('local_projects', JSON.stringify(updated));
+      setSelectedProjectName(newProject.name);
+      setActiveTab('dashboard');
+      return;
+    }
+
+    if (!spreadsheetId) return;
     try {
       // Check duplicate name
       const isDuplicate = projects.some(p => p.name.trim().toLowerCase() === newProject.name.trim().toLowerCase());
@@ -343,15 +398,23 @@ export default function App() {
 
   // 8. Save new transaction from modal
   const handleSaveTransaction = async (newTrx: Omit<Transaction, 'id'>) => {
-    if (!spreadsheetId || !selectedProjectName || !token) return;
     setError(null);
-    try {
-      const transactionId = `TRX-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-      const transaction: Transaction = {
-        ...newTrx,
-        id: transactionId,
-      };
+    const transactionId = `TRX-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const transaction: Transaction = {
+      ...newTrx,
+      id: transactionId,
+    };
 
+    if (!token) {
+      if (!selectedProjectName) return;
+      const updated = [transaction, ...transactions];
+      setTransactions(updated);
+      localStorage.setItem(`local_transactions_${selectedProjectName}`, JSON.stringify(updated));
+      return;
+    }
+
+    if (!spreadsheetId || !selectedProjectName) return;
+    try {
       await saveTransaction(spreadsheetId, selectedProjectName, transaction, token);
 
       // Instantly append to local list to reflect changes in UI
@@ -364,8 +427,16 @@ export default function App() {
 
   // 9. Delete transaction
   const handleDeleteTransaction = async (trxId: string) => {
-    if (!spreadsheetId || !selectedProjectName || !token) return;
     setError(null);
+    if (!token) {
+      if (!selectedProjectName) return;
+      const updated = transactions.filter(t => t.id !== trxId);
+      setTransactions(updated);
+      localStorage.setItem(`local_transactions_${selectedProjectName}`, JSON.stringify(updated));
+      return;
+    }
+
+    if (!spreadsheetId || !selectedProjectName) return;
     try {
       await deleteTransaction(spreadsheetId, selectedProjectName, trxId, token);
       // Remove from local list
@@ -443,11 +514,7 @@ export default function App() {
   };
 
   const renderMainContent = () => {
-    if (!token) {
-      return renderNotLoggedIn();
-    }
-
-    if (!spreadsheetId) {
+    if (token && !spreadsheetId) {
       return (
         <SpreadsheetSelector
           token={token}
@@ -532,24 +599,43 @@ export default function App() {
 
           {/* Guidelines info card */}
           <div className="bg-slate-900 text-slate-300 p-4 rounded-2xl border border-slate-800 space-y-2.5 shadow-xs">
-            <h3 className="text-[11px] font-bold text-amber-500 uppercase tracking-wider flex items-center gap-1">
-              <FileSpreadsheet size={12} />
-              ลิงก์เปิด Google Sheets
-            </h3>
-            <p className="text-[11px] leading-relaxed text-slate-400">
-              ข้อมูลรายรับรายจ่ายจะถูกบันทึกลงในชีตแยกตามชื่อโครงการ คุณสามารถคลิกเปิดดู แก้ไขสูตร หรือแชร์สเปรดชีตต่อได้ทันที
-            </p>
-            {spreadsheetId && (
-              <a
-                href={`https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`}
-                target="_blank"
-                referrerPolicy="no-referrer"
-                rel="noopener noreferrer"
-                className="w-full py-2 bg-slate-800 hover:bg-slate-700 hover:text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all text-amber-400"
-              >
-                <span>เปิดดูแผ่นงานสเปรดชีต</span>
-                <ExternalLink size={12} />
-              </a>
+            {token && spreadsheetId ? (
+              <>
+                <h3 className="text-[11px] font-bold text-amber-500 uppercase tracking-wider flex items-center gap-1">
+                  <FileSpreadsheet size={12} />
+                  ลิงก์เปิด Google Sheets
+                </h3>
+                <p className="text-[11px] leading-relaxed text-slate-400">
+                  ข้อมูลรายรับรายจ่ายจะถูกบันทึกลงในแผ่นงานแยกแต่ละโครงการของคุณโดยตรงในสเปรดชีต Google Sheets เรียลไทม์
+                </p>
+                <a
+                  href={`https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`}
+                  target="_blank"
+                  referrerPolicy="no-referrer"
+                  rel="noopener noreferrer"
+                  className="w-full py-2 bg-slate-800 hover:bg-slate-700 hover:text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all text-amber-400"
+                >
+                  <span>เปิดดูแผ่นงานสเปรดชีต</span>
+                  <ExternalLink size={12} />
+                </a>
+              </>
+            ) : (
+              <>
+                <h3 className="text-[11px] font-bold text-amber-500 uppercase tracking-wider flex items-center gap-1">
+                  <Sparkles size={12} />
+                  โหมดบันทึกข้อมูลในเครื่อง (Local Mode)
+                </h3>
+                <p className="text-[11px] leading-relaxed text-slate-400">
+                  ข้อมูลจะถูกบันทึกในอุปกรณ์นี้ คุณสามารถกดเชื่อมต่อ Google เพื่อบันทึกออนไลน์และซิงค์ข้อมูลลงใน Google Sheets ได้ตลอดเวลา
+                </p>
+                <button
+                  onClick={handleLogin}
+                  disabled={isLoggingIn}
+                  className="w-full py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <span>เชื่อมต่อ Google Sheets</span>
+                </button>
+              </>
             )}
           </div>
         </aside>
@@ -572,8 +658,11 @@ export default function App() {
               <div className="space-y-2 max-w-md">
                 <h2 className="text-xl font-bold font-display text-slate-800">ยินดีต้อนรับเข้าสู่แผงควบคุมหลัก</h2>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  ขณะนี้ระบบตรวจสอบพบว่าสเปรดชีต Google Sheets ของคุณยังไม่มีแผ่นงานโครงการใดๆ
-                  กรุณาคลิกสร้างโครงการด้านล่างเพื่อเริ่มสร้าง แผ่นงาน (Sheet Tab) และสูตรควบคุมแบบอัตโนมัติ
+                  {token ? (
+                    "ขณะนี้ระบบตรวจสอบพบว่าสเปรดชีต Google Sheets ของคุณยังไม่มีแผ่นงานโครงการใดๆ กรุณาคลิกสร้างโครงการด้านล่างเพื่อเริ่มสร้าง แผ่นงาน (Sheet Tab) และสูตรควบคุมแบบอัตโนมัติ"
+                  ) : (
+                    "ขณะนี้ในระบบยังไม่มีข้อมูลโครงการก่อสร้างของคุณ กรุณาคลิกปุ่มด้านล่างเพื่อเริ่มสร้างโครงการและบริหารงบประมาณก่อสร้างได้ทันที"
+                  )}
                 </p>
               </div>
               <button
